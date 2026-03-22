@@ -1,11 +1,22 @@
 pipeline {
     agent any
 
+    environment {
+        DOCKER_HUB_CREDENTIALS = 'dockerhub-cred'
+        DOCKER_IMAGE = 'ankitanallamilli/hotstar-webapp'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+
+    tools {
+        maven 'Maven'
+        jdk 'JDK17'
+    }
+
     stages {
 
         stage('Checkout Code') {
             steps {
-                checkout scmGit(branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[credentialsId: 'Sriramya', url: 'https://github.com/SriramyaGanni/Hotstar_Project.git']])
+                git url: 'https://github.com/2000ankitareddy/Hotstar_Project.git', branch: 'main'
             }
         }
 
@@ -17,15 +28,29 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t hotstar-image .'
+                script {
+                    docker.build("${DOCKER_IMAGE}:${IMAGE_TAG}")
+                }
             }
         }
 
-        stage('Run Container') {
+        stage('Push Docker Image') {
             steps {
-                sh 'docker stop hotstar-container || true'
-                sh 'docker rm hotstar-container || true'
-                sh 'docker run -d -p 9090:8080 --name hotstar-container hotstar-image'
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_HUB_CREDENTIALS}") {
+                        docker.image("${DOCKER_IMAGE}:${IMAGE_TAG}").push()
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    sh "sed -i 's|IMAGE_TAG|${IMAGE_TAG}|g' k8s/deployment.yml"
+                    sh 'kubectl apply -f k8s/deployment.yml'
+                    sh 'kubectl apply -f k8s/service.yml'
+                }
             }
         }
     }
